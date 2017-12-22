@@ -10,6 +10,7 @@
 #include "mathhelper.h"
 #include "lighthelper.h"
 #include "DDSTextureLoader.h"
+#include "D3DCompiler.h"
 
 #include <fstream>
 #include <vector>
@@ -51,5 +52,13 @@ namespace Colors
 	XMGLOBALCONST DirectX::XMVECTORF32 Silver = { 0.75f, 0.75f, 0.75f, 1.0f };
 	XMGLOBALCONST DirectX::XMVECTORF32 LightSteelBlue = { 0.69f, 0.77f, 0.87f, 1.0f };
 }
+
+void CreateConstantBuffer(ID3D11Device* device, ID3D11Buffer** buffer, UINT size);
+void CreateVertexShader(ID3D11Device* device, ID3D11VertexShader** shader, ID3DBlob** bytecode, LPCWSTR filename, LPCSTR entryPoint);
+void CreateGeometryShader(ID3D11Device* device, ID3D11GeometryShader** shader, LPCWSTR filename, LPCSTR entryPoint);
+void CreateGeometryShaderStreamOut(ID3D11Device* device, ID3D11GeometryShader** shader, LPCWSTR filename, LPCSTR entryPoint);
+void CreatePixelShader(ID3D11Device* device, ID3D11PixelShader** shader, LPCWSTR filename, LPCSTR entryPoint);
+void LoadTextureToSRV(ID3D11Device* device, ID3D11ShaderResourceView** srv, LPCWSTR filename);
+
 
 #endif

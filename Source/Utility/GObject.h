@@ -87,6 +87,7 @@ protected:
 
 	ID3D11ShaderResourceView* mDiffuseMapSRV;
 	ID3D11ShaderResourceView* mNormalMapSRV;
+	ID3D11ShaderResourceView* mReflectionSRV;
 
 	DirectX::BoundingBox mAABB;
 
@@ -112,6 +113,7 @@ protected:
 
 	bool isIndexed;
 	bool isVisible;
+	bool isReflective;
 };
 
 #endif // GOBJECT_H

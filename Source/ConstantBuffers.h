@@ -1,3 +1,6 @@
+#ifndef CONSTANTBUFFERS_H
+#define CONSTANTBUFFERS_H
+
 struct ConstBufferPerObjectDebug
 {
 	DirectX::XMMATRIX world;
@@ -72,3 +75,5 @@ struct ConstBufferPerObjectShadow
 {
 	DirectX::XMMATRIX worldViewProj;
 };
+
+#endif // CONSTANTBUFFERS_H

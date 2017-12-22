@@ -96,7 +96,19 @@
     <ClCompile Include="Source\ThirdParty\DXErr.cpp">
       <Filter>Common\ThirdParty</Filter>
     </ClCompile>
-    <ClCompile Include="Source\ShadowMap.cpp">
+    <ClCompile Include="Source\RenderPassSSAO.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Utility\D3DUtil.cpp">
+      <Filter>Common\Utility</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Utility\GObjectStore.cpp">
+      <Filter>Common\Utility</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\RenderPassParticleSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\RenderPassShadow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -185,7 +197,19 @@
     <ClInclude Include="Source\ConstantBuffers.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Source\ShadowMap.h">
+    <ClInclude Include="Source\RenderPass.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\RenderPassSSAO.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Utility\GObjectStore.h">
+      <Filter>Common\Utility</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\RenderPassParticleSystem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\RenderPassShadow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -208,22 +232,10 @@
     <FxCompile Include="Assets\Shaders\NormalDepthVS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
-    <FxCompile Include="Assets\Shaders\PixelShader.hlsl">
-      <Filter>Shaders</Filter>
-    </FxCompile>
-    <FxCompile Include="Assets\Shaders\SkyPixelShader.hlsl">
-      <Filter>Shaders</Filter>
-    </FxCompile>
-    <FxCompile Include="Assets\Shaders\SkyVertexShader.hlsl">
-      <Filter>Shaders</Filter>
-    </FxCompile>
     <FxCompile Include="Assets\Shaders\SSAOPS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
     <FxCompile Include="Assets\Shaders\SSAOVS.hlsl">
-      <Filter>Shaders</Filter>
-    </FxCompile>
-    <FxCompile Include="Assets\Shaders\VertexShader.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
     <FxCompile Include="Assets\Shaders\ParticleDrawGS.hlsl">
@@ -241,7 +253,19 @@
     <FxCompile Include="Assets\Shaders\ParticleStreamOutVS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
-    <FxCompile Include="Assets\Shaders\ShadowVertexShader.hlsl">
+    <FxCompile Include="Assets\Shaders\MainPS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Assets\Shaders\MainVS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Assets\Shaders\ShadowVS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Assets\Shaders\SkyPS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Assets\Shaders\SkyVS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
   </ItemGroup>

@@ -7,6 +7,8 @@
 #include "MathHelper.h"
 #include "D3DCompiler.h"
 
+/* D3DApp Functions*/
+
 MyApp::MyApp(HINSTANCE Instance) :
 	D3DApp(Instance)
 {
@@ -15,6 +17,8 @@ MyApp::MyApp(HINSTANCE Instance) :
 
 MyApp::~MyApp()
 {
+	delete rp_SSAO;
+	delete rp_Particle;
 }
 
 bool MyApp::Init()
@@ -22,85 +26,68 @@ bool MyApp::Init()
 	// Initialize parent D3DApp
 	if (!D3DApp::Init()) { return false; }
 
-	// Initiailize Render States
-	RenderStates::InitAll(mDevice);
+	mObjectStore = new GObjectStore();
 
 	// Initialize Camera
 	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
 
-	BuildCubeFaceCamera(0.0f, 2.0f, 0.0f);
-	for (int j = 0; j < 10; ++j)
-	{
-		for (int i = 0; i < 6; ++i)
-		{
-			mDynamicCubeMapRTV[j][i] = 0;
-		}
-	}
-
-	// Initialize User Input
-	InitUserInput();
-
 	// Intialize Lights
 	SetupStaticLights();
 
+	// Initialize Render Passes
+	rp_SSAO = new RenderPassSSAO(mDevice, mClientWidth, mClientHeight, &mCamera, mObjectStore);
+	rp_Particle = new RenderPassParticleSystem(mDevice, &mCamera, &mTimer);
+	rp_Shadow = new RenderPassShadow(mDevice, &mCamera, mDirLights[0], mObjectStore);
+
+	// Initiailize Render States
+	RenderStates::InitAll(mDevice);
+
+	// Initialize User Input
+	InitUserInput();
+	
 	// Create Objects
 	mSkullObject = new GObject("Assets/Models/skull.txt");
 	CreateGeometryBuffers(mSkullObject, false);
+	mObjectStore->AddObject(mSkullObject);
 
 	mFloorObject = new GPlaneXZ(20.0f, 30.0f, 60, 40);
 	CreateGeometryBuffers(mFloorObject, false);
+	mObjectStore->AddObject(mFloorObject);
 
 	mBoxObject = new GCube();
 	CreateGeometryBuffers(mBoxObject, false);
+	mObjectStore->AddObject(mBoxObject);
 
 	for (int i = 0; i < 10; ++i)
 	{
 		mSphereObjects[i] = new GSphere();
 		CreateGeometryBuffers(mSphereObjects[i], false);
+		mObjectStore->AddObject(mSphereObjects[i]);
 	}
 
 	for (int i = 0; i < 10; ++i)
 	{
 		mColumnObjects[i] = new GCylinder();
 		CreateGeometryBuffers(mColumnObjects[i], false);
+		mObjectStore->AddObject(mColumnObjects[i]);
 	}
 
 	mSkyObject = new GSky(5000.0f);
 	CreateGeometryBuffers(mSkyObject, false);
+	mObjectStore->AddObject(mSkyObject);
 
 	// Initialize Object Placement and Properties
 	PositionObjects();
 
-	// Initialize Shadow Map
-	mShadowMap = new ShadowMap(mDevice, 2048, 2048);
-
 	// Compile Shaders
-	CreateVertexShader(&mVertexShader, &mVSByteCode, L"Assets/Shaders/VertexShader.hlsl", "VS");
-	CreatePixelShader(&mPixelShader, L"Assets/Shaders/PixelShader.hlsl", "PS");
+	CreateVertexShader(mDevice, &mVertexShader, &mVSByteCode, L"Assets/Shaders/MainVS.hlsl", "VS");
+	CreatePixelShader(mDevice, &mPixelShader, L"Assets/Shaders/MainPS.hlsl", "PS");
 
-	CreateVertexShader(&mSkyVertexShader, &mVSByteCodeSky, L"Assets/Shaders/SkyVertexShader.hlsl", "VS");
-	CreatePixelShader(&mSkyPixelShader, L"Assets/Shaders/SkyPixelShader.hlsl", "PS");
+	CreateVertexShader(mDevice, &mSkyVertexShader, &mVSByteCodeSky, L"Assets/Shaders/SkyVS.hlsl", "VS");
+	CreatePixelShader(mDevice, &mSkyPixelShader, L"Assets/Shaders/SkyPS.hlsl", "PS");
 
-	CreateVertexShader(&mNormalDepthVS, &mVSByteCodeND, L"Assets/Shaders/NormalDepthVS.hlsl", "VS");
-	CreatePixelShader(&mNormalDepthPS, L"Assets/Shaders/NormalDepthPS.hlsl", "PS");
-
-	CreateVertexShader(&mSsaoVS, &mVSByteCodeSSAO, L"Assets/Shaders/SSAOVS.hlsl", "VS");
-	CreatePixelShader(&mSsaoPS, L"Assets/Shaders/SSAOPS.hlsl", "PS");
-
-	CreateVertexShader(&mBlurVS, &mVSByteCodeBlur, L"Assets/Shaders/BlurVS.hlsl", "VS");
-	CreatePixelShader(&mBlurPS, L"Assets/Shaders/BlurPS.hlsl", "PS");
-
-	CreateVertexShader(&mDebugTextureVS, &mVSByteCodeDebug, L"Assets/Shaders/DebugTextureVS.hlsl", "VS");
-	CreatePixelShader(&mDebugTexturePS, L"Assets/Shaders/DebugTexturePS.hlsl", "PS");
-
-	CreateVertexShader(&mParticleStreamOutVS, &mVSByteCodeParticleSO, L"Assets/Shaders/ParticleStreamOutVS.hlsl", "VS");
-	CreateGeometryShaderStreamOut(&mParticleStreamOutGS, L"Assets/Shaders/ParticleStreamOutGS.hlsl", "GS");
-
-	CreateVertexShader(&mParticleDrawVS, &mVSByteCodeParticleDraw, L"Assets/Shaders/ParticleDrawVS.hlsl", "VS");
-	CreateGeometryShader(&mParticleDrawGS, L"Assets/Shaders/ParticleDrawGS.hlsl", "GS");
-	CreatePixelShader(&mParticleDrawPS, L"Assets/Shaders/ParticleDrawPS.hlsl", "PS");
-
-	CreateVertexShader(&mShadowVertexShader, &mVSByteCodeShadow, L"Assets/Shaders/ShadowVertexShader.hlsl", "VS");
+	CreateVertexShader(mDevice, &mDebugTextureVS, &mVSByteCodeDebug, L"Assets/Shaders/DebugTextureVS.hlsl", "VS");
+	CreatePixelShader(mDevice, &mDebugTexturePS, L"Assets/Shaders/DebugTexturePS.hlsl", "PS");
 
 	UINT numElements;
 
@@ -118,112 +105,95 @@ bool MyApp::Init()
 	// Create the input layout
 	HR(mDevice->CreateInputLayout(vertexDesc, numElements, mVSByteCode->GetBufferPointer(), mVSByteCode->GetBufferSize(), &mVertexLayout));
 
-
-	// Create the vertex input layout.
-	D3D11_INPUT_ELEMENT_DESC vertexDescND[] =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	};
-
-	numElements = sizeof(vertexDescND) / sizeof(D3D11_INPUT_ELEMENT_DESC);
-
-	// Create the input layout
-	HR(mDevice->CreateInputLayout(vertexDescND, numElements, mVSByteCodeND->GetBufferPointer(), mVSByteCodeND->GetBufferSize(), &mVertexLayoutNormalDepth));
-
-
-
-	// Create the vertex input layout.
-	D3D11_INPUT_ELEMENT_DESC vertexDescSSAO[] =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	};
-
-	numElements = sizeof(vertexDescSSAO) / sizeof(D3D11_INPUT_ELEMENT_DESC);
-
-	// Create the input layout
-	HR(mDevice->CreateInputLayout(vertexDescSSAO, numElements, mVSByteCodeSSAO->GetBufferPointer(), mVSByteCodeSSAO->GetBufferSize(), &mVertexLayoutSSAO));
-
-
-
-	// Create the vertex input layout.
-	D3D11_INPUT_ELEMENT_DESC vertexDescParticle[] =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,  0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "VELOCITY", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "SIZE",     0, DXGI_FORMAT_R32G32_FLOAT,    0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "AGE",      0, DXGI_FORMAT_R32_FLOAT,       0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "TYPE",     0, DXGI_FORMAT_R32_UINT,        0, 36, D3D11_INPUT_PER_VERTEX_DATA, 0 }
-	};
-
-	numElements = sizeof(vertexDescParticle) / sizeof(D3D11_INPUT_ELEMENT_DESC);
-
-	// Create the input layout
-	HR(mDevice->CreateInputLayout(vertexDescParticle, numElements, mVSByteCodeParticleSO->GetBufferPointer(), mVSByteCodeParticleSO->GetBufferSize(), &mVertexLayoutParticle));
-
-	// Create the vertex input layout.
-	D3D11_INPUT_ELEMENT_DESC vertexDescShadow[] =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0 }
-	};
-
-	numElements = sizeof(vertexDescShadow) / sizeof(D3D11_INPUT_ELEMENT_DESC);
-
-	// Create the input layout
-	HR(mDevice->CreateInputLayout(vertexDescShadow, numElements, mVSByteCodeShadow->GetBufferPointer(), mVSByteCodeShadow->GetBufferSize(), &mVertexLayoutShadow));
-
-
 	// Create Constant Buffers
-	CreateConstantBuffer(&mConstBufferPerFrame, sizeof(ConstBufferPerFrame));
-	CreateConstantBuffer(&mConstBufferPerObject, sizeof(ConstBufferPerObject));
-	CreateConstantBuffer(&mConstBufferPSParams, sizeof(ConstBufferPSParams));
-	CreateConstantBuffer(&mConstBufferPerObjectND, sizeof(ConstBufferPerObjectNormalDepth));
-	CreateConstantBuffer(&mConstBufferPerFrameSSAO, sizeof(ConstBufferPerFrameSSAO));
-	CreateConstantBuffer(&mConstBufferBlurParams, sizeof(ConstBufferBlurParams));
-	CreateConstantBuffer(&mConstBufferPerObjectDebug, sizeof(ConstBufferPerObjectDebug));
-	CreateConstantBuffer(&mConstBufferPerFrameParticle, sizeof(ConstBufferPerFrameParticle));
-	CreateConstantBuffer(&mConstBufferPerObjectShadow, sizeof(ConstBufferPerObjectShadow));
+	CreateConstantBuffer(mDevice, &mConstBufferPerFrame, sizeof(ConstBufferPerFrame));
+	CreateConstantBuffer(mDevice, &mConstBufferPerObject, sizeof(ConstBufferPerObject));
+	CreateConstantBuffer(mDevice, &mConstBufferPSParams, sizeof(ConstBufferPSParams));
+	CreateConstantBuffer(mDevice, &mConstBufferPerObjectDebug, sizeof(ConstBufferPerObjectDebug));
 
-	SetupNormalDepth();
-	SetupSSAO();
-	BuildFrustumCorners();
-	BuildOffsetVectors();
+	// Init AO
+	rp_SSAO->Init();
 	BuildFullScreenQuad();
-	BuildRandomVectorTexture();
-	mAOSetting = true;
 
-	// Initialize particle system
-	mMaxParticles = 500;
-	mGameTime = 0.0f;
-	mTimeStep = 0.0f;
-	mAge = 0.0f;
-	mFirstRun = true;
+	rp_Particle->Init();
+	rp_Shadow->Init();
 
-	mEmitPosW = DirectX::XMFLOAT3(0.0f, 1.5f, 0.0f);
-	mEmitDirW = DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
-
-	BuildParticleVB();
-	CreateRandomSRV();
-
-	mLightRotationAngle = 0.0f;
-
+	// Cube Maps
 	BuildDynamicCubeMapViews();
 
-	// Render Cube Maps
 	RenderCubeMaps();
 
 	return true;
 }
 
-
-
-void MyApp::InitUserInput()
+void MyApp::OnResize()
 {
-	mLastMousePos.x = 0;
-	mLastMousePos.y = 0;
+	D3DApp::OnResize();
+
+	mCamera.SetLens(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 }
+
+
+void MyApp::UpdateScene(float dt)
+{
+	// Control the camera.
+	if (GetAsyncKeyState('W') & 0x8000)
+	{
+		mCamera.Walk(10.0f*dt);
+	}
+
+	if (GetAsyncKeyState('S') & 0x8000)
+	{
+		mCamera.Walk(-10.0f*dt);
+	}
+
+	if (GetAsyncKeyState('A') & 0x8000)
+	{
+		mCamera.Strafe(-10.0f*dt);
+	}
+
+	if (GetAsyncKeyState('D') & 0x8000)
+	{
+		mCamera.Strafe(10.0f*dt);
+	}
+
+	rp_SSAO->Update(dt);
+	rp_Particle->Update(dt);
+	rp_Shadow->Update(dt);
+}
+
+void MyApp::DrawScene()
+{
+	// Update Camera
+	mCamera.UpdateViewMatrix();
+
+	// Shadow Pass - Render scene depth to the shadow map
+	rp_Shadow->Draw();
+
+	rp_SSAO->Draw();
+
+	// Restore old viewport and render targets.
+	mImmediateContext->RSSetViewports(1, &mViewport);
+	ID3D11RenderTargetView* renderTargets[1];
+	renderTargets[0] = mRenderTargetView;
+	mImmediateContext->OMSetRenderTargets(1, renderTargets, mDepthStencilView);
+
+	// Clear the render target and depth/stencil views
+	mImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Silver));
+	mImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+	// Normal Lighting Pass - Render scene to the back buffer
+	RenderScene(mCamera);
+
+	// Particle System
+	rp_Particle->Draw();
+
+	// Draw SSAO Map in Bottom Corner
+	DrawSSAOMap();
+
+	HR(mSwapChain->Present(0, 0));
+}
+
 
 void MyApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
@@ -262,15 +232,7 @@ void MyApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 void MyApp::OnKeyDown(WPARAM key, LPARAM info)
 {
-	if (key == 0x31)
-	{
-		mAOSetting = true;
-	}
-	else if (key == 0x32)
-	{
-		mAOSetting = false;
-	}
-	else if (key == 0x33)
+	if (key == 0x33)
 	{
 		mNormalMapping = true;
 	}
@@ -281,6 +243,7 @@ void MyApp::OnKeyDown(WPARAM key, LPARAM info)
 }
 
 
+/* D3D11 Helper Functions */
 
 void MyApp::CreateGeometryBuffers(GObject* obj, bool bDynamic)
 {
@@ -318,75 +281,6 @@ void MyApp::CreateGeometryBuffers(GObject* obj, bool bDynamic)
 	}
 }
 
-void MyApp::CreateVertexShader(ID3D11VertexShader** shader, ID3DBlob** bytecode, LPCWSTR filename, LPCSTR entryPoint)
-{
-	HR(D3DCompileFromFile(filename, 0, D3D_COMPILE_STANDARD_FILE_INCLUDE, entryPoint, "vs_5_0", D3DCOMPILE_DEBUG, 0, bytecode, 0));
-	HR(mDevice->CreateVertexShader((*bytecode)->GetBufferPointer(), (*bytecode)->GetBufferSize(), NULL, shader));
-}
-
-void MyApp::CreateGeometryShader(ID3D11GeometryShader** shader, LPCWSTR filename, LPCSTR entryPoint)
-{
-	ID3DBlob* GSByteCode = 0;
-	HR(D3DCompileFromFile(filename, 0, D3D_COMPILE_STANDARD_FILE_INCLUDE, entryPoint, "gs_5_0", D3DCOMPILE_DEBUG, 0, &GSByteCode, 0));
-
-	HR(mDevice->CreateGeometryShader(GSByteCode->GetBufferPointer(), GSByteCode->GetBufferSize(), NULL, shader));
-
-	GSByteCode->Release();
-}
-
-void MyApp::CreateGeometryShaderStreamOut(ID3D11GeometryShader** shader, LPCWSTR filename, LPCSTR entryPoint)
-{
-	ID3DBlob* GSByteCode = 0;
-	HR(D3DCompileFromFile(filename, 0, D3D_COMPILE_STANDARD_FILE_INCLUDE, entryPoint, "gs_5_0", D3DCOMPILE_DEBUG, 0, &GSByteCode, 0));
-
-	D3D11_SO_DECLARATION_ENTRY soDecl[] =
-	{
-		// semantic name, semantic index, start component, component count, output slot
-		{ 0, "POSITION",    0, 0, 3, 0 },   // output all components of position
-		{ 0, "VELOCITY",    0, 0, 3, 0 },     // output the first 3 of the normal
-		{ 0, "SIZE",        0, 0, 2, 0 },     // output the first 2 texture coordinates
-		{ 0, "AGE",         0, 0, 1, 0 },     // output the first 2 texture coordinates
-		{ 0, "TYPE",        0, 0, 1, 0 },     // output the first 2 texture coordinates
-	};
-
-	UINT numEntries = sizeof(soDecl) / sizeof(D3D11_SO_DECLARATION_ENTRY);
-
-	HR(mDevice->CreateGeometryShaderWithStreamOutput(GSByteCode->GetBufferPointer(), GSByteCode->GetBufferSize(), soDecl, numEntries, NULL, 0, 0, NULL, shader));
-
-	GSByteCode->Release();
-}
-
-void MyApp::CreatePixelShader(ID3D11PixelShader** shader, LPCWSTR filename, LPCSTR entryPoint)
-{
-	ID3DBlob* PSByteCode = 0;
-	HR(D3DCompileFromFile(filename, 0, D3D_COMPILE_STANDARD_FILE_INCLUDE, entryPoint, "ps_5_0", D3DCOMPILE_DEBUG, 0, &PSByteCode, 0));
-
-	HR(mDevice->CreatePixelShader(PSByteCode->GetBufferPointer(), PSByteCode->GetBufferSize(), NULL, shader));
-
-	PSByteCode->Release();
-}
-
-void MyApp::LoadTextureToSRV(ID3D11ShaderResourceView** SRV, LPCWSTR filename)
-{
-	ID3D11Resource* texResource = nullptr;
-	HR(DirectX::CreateDDSTextureFromFile(mDevice, filename, &texResource, SRV));
-	ReleaseCOM(texResource); // view saves reference
-}
-
-void MyApp::CreateConstantBuffer(ID3D11Buffer** buffer, UINT size)
-{
-	D3D11_BUFFER_DESC desc;
-
-	desc.Usage = D3D11_USAGE_DYNAMIC;
-	desc.ByteWidth = size;
-	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-	desc.MiscFlags = 0;
-	desc.StructureByteStride = 0;
-
-	HR(mDevice->CreateBuffer(&desc, NULL, buffer));
-}
-
 void MyApp::DrawObject(GObject* object, const GFirstPersonCamera& camera)
 {
 	// Store convenient matrices
@@ -394,7 +288,7 @@ void MyApp::DrawObject(GObject* object, const GFirstPersonCamera& camera)
 	DirectX::XMMATRIX worldInvTranspose = MathHelper::InverseTranspose(world);
 	DirectX::XMMATRIX worldViewProj = world*camera.ViewProj();
 	DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&object->GetTexTransform());
-	DirectX::XMMATRIX shadowTransform = XMLoadFloat4x4(&mShadowTransform);
+	DirectX::XMMATRIX shadowTransform = XMLoadFloat4x4(&rp_Shadow->GetShadowTransform());
 
 	static const DirectX::XMMATRIX T(
 		0.5f, 0.0f, 0.0f, 0.0f,
@@ -452,6 +346,8 @@ void MyApp::DrawObject(GObject* object, const GFirstPersonCamera& camera)
 }
 
 
+/* App-Specific Code */
+
 void MyApp::PositionObjects()
 {
 	mFloorObject->SetTextureScaling(4.0f, 4.0f);
@@ -499,20 +395,19 @@ void MyApp::PositionObjects()
 	mSkullObject->SetSpecular(DirectX::XMFLOAT4(0.8f, 0.8f, 0.8f, 16.0f));
 	mSkullObject->SetReflect(DirectX::XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f));
 
-	LoadTextureToSRV(mFloorObject->GetDiffuseMapSRV(), L"Assets/Textures/floor.dds");
-	LoadTextureToSRV(mFloorObject->GetNormalMapSRV(), L"Assets/Textures/floor_nmap.dds");
+	LoadTextureToSRV(mDevice, mFloorObject->GetDiffuseMapSRV(), L"Assets/Textures/floor.dds");
+	LoadTextureToSRV(mDevice, mFloorObject->GetNormalMapSRV(), L"Assets/Textures/floor_nmap.dds");
 
-	LoadTextureToSRV(mBoxObject->GetDiffuseMapSRV(), L"Assets/Textures/grass.dds");
-	LoadTextureToSRV(mBoxObject->GetNormalMapSRV(), L"Assets/Textures/bricks_nmap.dds");
+	LoadTextureToSRV(mDevice, mBoxObject->GetDiffuseMapSRV(), L"Assets/Textures/grass.dds");
+	LoadTextureToSRV(mDevice, mBoxObject->GetNormalMapSRV(), L"Assets/Textures/bricks_nmap.dds");
 
 	for (int i = 0; i < 10; ++i)
 	{
 		//		LoadTextureToSRV(mSphereObjects[i]->GetDiffuseMapSRV(), L"Assets/Textures/ice.dds");
-		LoadTextureToSRV(mColumnObjects[i]->GetDiffuseMapSRV(), L"Assets/Textures/stone.dds");
+		LoadTextureToSRV(mDevice, mColumnObjects[i]->GetDiffuseMapSRV(), L"Assets/Textures/stone.dds");
 	}
 
-	LoadTextureToSRV(mSkyObject->GetDiffuseMapSRV(), L"Assets/Textures/grasscube1024.dds");
-	LoadTextureToSRV(&mTexArraySRV, L"Assets/Textures/flare0.dds");
+	LoadTextureToSRV(mDevice, mSkyObject->GetDiffuseMapSRV(), L"Assets/Textures/grasscube1024.dds");
 }
 
 void MyApp::SetupStaticLights()
@@ -531,514 +426,16 @@ void MyApp::SetupStaticLights()
 	mDirLights[2].Diffuse = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
 	mDirLights[2].Specular = DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
 	mDirLights[2].Direction = DirectX::XMFLOAT3(0.0f, -0.707f, -0.707f);
-
-	mOriginalLightDir[0] = mDirLights[0].Direction;
-	mOriginalLightDir[1] = mDirLights[1].Direction;
-	mOriginalLightDir[2] = mDirLights[2].Direction;
 }
 
-
-void MyApp::OnResize()
+void MyApp::InitUserInput()
 {
-	D3DApp::OnResize();
-
-	mCamera.SetLens(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-}
-
-void MyApp::UpdateScene(float dt)
-{
-	// Control the camera.
-	if (GetAsyncKeyState('W') & 0x8000)
-	{
-		mCamera.Walk(10.0f*dt);
-	}
-
-	if (GetAsyncKeyState('S') & 0x8000)
-	{
-		mCamera.Walk(-10.0f*dt);
-	}
-
-	if (GetAsyncKeyState('A') & 0x8000)
-	{
-		mCamera.Strafe(-10.0f*dt);
-	}
-
-	if (GetAsyncKeyState('D') & 0x8000)
-	{
-		mCamera.Strafe(10.0f*dt);
-	}
-
-	mGameTime = mTimer.TotalTime();
-	mTimeStep = dt;
-	mAge += dt;
-
-	// Animate the lights
-	mLightRotationAngle += 0.25f*dt;
-
-	DirectX::XMMATRIX R = DirectX::XMMatrixRotationY(mLightRotationAngle);
-
-	for (int i = 0; i < 3; ++i)
-	{
-		DirectX::XMVECTOR lightDir = DirectX::XMLoadFloat3(&mOriginalLightDir[i]);
-		lightDir = DirectX::XMVector3TransformNormal(lightDir, R);
-		DirectX::XMStoreFloat3(&mDirLights[i].Direction, lightDir);
-	}
-
-	BuildShadowTransform();
-}
-
-void MyApp::DrawScene()
-{
-	// Update Camera
-	mCamera.UpdateViewMatrix();
-
-	// Shadow Pass - Render scene depth to the shadow map
-	RenderShadowMap();
-
-	// Render Scene Normals and Depth
-	RenderNormalDepthMap();
-
-	// Render SSAO Map
-	RenderSSAOMap();
-
-	// Blur SSAO Map
-	BlurSSAOMap(4);
-
-	// Restore old viewport and render targets.
-	mImmediateContext->RSSetViewports(1, &mViewport);
-	ID3D11RenderTargetView* renderTargets[1];
-	renderTargets[0] = mRenderTargetView;
-	mImmediateContext->OMSetRenderTargets(1, renderTargets, mDepthStencilView);
-
-	// Clear the render target and depth/stencil views
-	mImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Silver));
-	mImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-
-	// Normal Lighting Pass - Render scene to the back buffer
-	RenderScene(mCamera);
-
-	// Particle System
-	RenderParticleSystem();
-
-	// Draw SSAO Map in Bottom Corner
-	DrawSSAOMap();
-
-	HR(mSwapChain->Present(0, 0));
+	mLastMousePos.x = 0;
+	mLastMousePos.y = 0;
 }
 
 
-
-void MyApp::RenderShadowMap()
-{
-	// Set Null Render Target and Shadow Map DSV
-	ID3D11RenderTargetView* renderTargets[] = { nullptr };
-	ID3D11DepthStencilView* shadowMapDSV = mShadowMap->GetDepthMapDSV();
-	mImmediateContext->OMSetRenderTargets(1, renderTargets, shadowMapDSV);
-
-	// Clear Shadow Map DSV
-	mImmediateContext->ClearDepthStencilView(shadowMapDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
-
-	// Set Viewport
-	D3D11_VIEWPORT shadowMapViewport = mShadowMap->GetViewport();
-	mImmediateContext->RSSetViewports(1, &shadowMapViewport);
-
-	// Set Vertex Layout for shadow map
-	mImmediateContext->IASetInputLayout(mVertexLayoutShadow);
-	mImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	// Set Render States
-	mImmediateContext->RSSetState(RenderStates::ShadowMapRS);
-	mImmediateContext->OMSetDepthStencilState(RenderStates::DefaultDSS, 0);
-
-	// Set shadow map VS and null PS
-	mImmediateContext->VSSetShader(mShadowVertexShader, NULL, 0);
-	mImmediateContext->PSSetShader(NULL, NULL, 0);
-
-	// Set VS constant buffer 
-	mImmediateContext->VSSetConstantBuffers(0, 1, &mConstBufferPerObjectShadow);
-
-	// Compute ViewProj matrix of the light source
-	DirectX::XMMATRIX view = XMLoadFloat4x4(&mLightView);
-	DirectX::XMMATRIX proj = XMLoadFloat4x4(&mLightProj);
-	DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-
-	DirectX::XMMATRIX world;
-	DirectX::XMMATRIX worldViewProj;
-
-	UINT stride = sizeof(Vertex);
-	UINT offset = 0;
-
-	// Draw the grid
-	world = DirectX::XMLoadFloat4x4(&mFloorObject->GetWorldTransform());
-	worldViewProj = world*viewProj;
-
-	mImmediateContext->Map(mConstBufferPerObjectShadow, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectShadowResource);
-	cbPerObjectShadow = (ConstBufferPerObjectShadow*)cbPerObjectShadowResource.pData;
-	cbPerObjectShadow->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-	mImmediateContext->Unmap(mConstBufferPerObjectShadow, 0);
-
-	mImmediateContext->IASetVertexBuffers(0, 1, mFloorObject->GetVertexBuffer(), &stride, &offset);
-	mImmediateContext->IASetIndexBuffer(*mFloorObject->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-	mImmediateContext->DrawIndexed(mFloorObject->GetIndexCount(), 0, 0);
-
-	// Draw the box
-	world = DirectX::XMLoadFloat4x4(&mBoxObject->GetWorldTransform());
-	worldViewProj = world*viewProj;
-
-	mImmediateContext->Map(mConstBufferPerObjectShadow, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectShadowResource);
-	cbPerObjectShadow = (ConstBufferPerObjectShadow*)cbPerObjectShadowResource.pData;
-	cbPerObjectShadow->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-	mImmediateContext->Unmap(mConstBufferPerObjectShadow, 0);
-
-	mImmediateContext->IASetVertexBuffers(0, 1, mBoxObject->GetVertexBuffer(), &stride, &offset);
-	mImmediateContext->IASetIndexBuffer(*mBoxObject->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-	mImmediateContext->DrawIndexed(mBoxObject->GetIndexCount(), 0, 0);
-
-	// Draw the cylinders
-	for (int i = 0; i < 10; ++i)
-	{
-		world = DirectX::XMLoadFloat4x4(&mColumnObjects[i]->GetWorldTransform());
-		worldViewProj = world*viewProj;
-
-		mImmediateContext->Map(mConstBufferPerObjectShadow, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectShadowResource);
-		cbPerObjectShadow = (ConstBufferPerObjectShadow*)cbPerObjectShadowResource.pData;
-		cbPerObjectShadow->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-		mImmediateContext->Unmap(mConstBufferPerObjectShadow, 0);
-
-		mImmediateContext->IASetVertexBuffers(0, 1, mColumnObjects[i]->GetVertexBuffer(), &stride, &offset);
-		mImmediateContext->IASetIndexBuffer(*mColumnObjects[i]->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-		mImmediateContext->DrawIndexed(mColumnObjects[i]->GetIndexCount(), 0, 0);
-	}
-
-	// Draw the spheres.
-	for (int i = 0; i < 10; ++i)
-	{
-		world = DirectX::XMLoadFloat4x4(&mSphereObjects[i]->GetWorldTransform());
-		worldViewProj = world*viewProj;
-
-		mImmediateContext->Map(mConstBufferPerObjectShadow, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectShadowResource);
-		cbPerObjectShadow = (ConstBufferPerObjectShadow*)cbPerObjectShadowResource.pData;
-		cbPerObjectShadow->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-		mImmediateContext->Unmap(mConstBufferPerObjectShadow, 0);
-
-		mImmediateContext->IASetVertexBuffers(0, 1, mSphereObjects[i]->GetVertexBuffer(), &stride, &offset);
-		mImmediateContext->IASetIndexBuffer(*mSphereObjects[i]->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-		mImmediateContext->DrawIndexed(mSphereObjects[i]->GetIndexCount(), 0, 0);
-	}
-
-	// Draw the skull.
-	world = DirectX::XMLoadFloat4x4(&mSkullObject->GetWorldTransform());
-	worldViewProj = world*viewProj;
-
-	mImmediateContext->Map(mConstBufferPerObjectShadow, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectShadowResource);
-	cbPerObjectShadow = (ConstBufferPerObjectShadow*)cbPerObjectShadowResource.pData;
-	cbPerObjectShadow->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-	mImmediateContext->Unmap(mConstBufferPerObjectShadow, 0);
-
-	mImmediateContext->IASetVertexBuffers(0, 1, mSkullObject->GetVertexBuffer(), &stride, &offset);
-	mImmediateContext->IASetIndexBuffer(*mSkullObject->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-	mImmediateContext->DrawIndexed(mSkullObject->GetIndexCount(), 0, 0);
-}
-
-void MyApp::RenderNormalDepthMap()
-{
-	ID3D11RenderTargetView* renderTargets[] = { mNormalDepthRTV };
-	mImmediateContext->OMSetRenderTargets(1, renderTargets, mDepthStencilView);
-
-	// Clear the render target and depth/stencil views
-	float clearColor[] = { 0.0f, 0.0f, -1.0f, 1e5f };
-	mImmediateContext->ClearRenderTargetView(mNormalDepthRTV, clearColor);
-	mImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-
-
-	// Set Viewport
-	mImmediateContext->RSSetViewports(1, &mViewport);
-
-	// Set Vertex Layout
-	mImmediateContext->IASetInputLayout(mVertexLayoutNormalDepth);
-	mImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	// Set Render States
-	float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-	mImmediateContext->RSSetState(RenderStates::DefaultRS);
-	mImmediateContext->OMSetBlendState(RenderStates::DefaultBS, blendFactor, 0xffffffff);
-	mImmediateContext->OMSetDepthStencilState(RenderStates::DefaultDSS, 0);
-
-	// Set Shaders
-	mImmediateContext->VSSetShader(mNormalDepthVS, NULL, 0);
-	mImmediateContext->PSSetShader(mNormalDepthPS, NULL, 0);
-
-	// Update Camera
-	mCamera.UpdateViewMatrix();
-
-	// Bind Constant Buffers to the Pipeline
-	mImmediateContext->VSSetConstantBuffers(0, 1, &mConstBufferPerObjectND);
-
-	// Compute ViewProj matrix of the light source
-	DirectX::XMMATRIX view = mCamera.View();
-	DirectX::XMMATRIX viewProj = mCamera.ViewProj();
-
-	DirectX::XMMATRIX world;
-	DirectX::XMMATRIX worldView;
-	DirectX::XMMATRIX worldViewProj;
-
-	UINT stride = sizeof(Vertex);
-	UINT offset = 0;
-
-	// Draw the grid
-	world = DirectX::XMLoadFloat4x4(&mFloorObject->GetWorldTransform());
-	worldView = world*view;
-	worldViewProj = world*viewProj;
-
-	mImmediateContext->Map(mConstBufferPerObjectND, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectNDResource);
-	cbPerObjectND = (ConstBufferPerObjectNormalDepth*)cbPerObjectNDResource.pData;
-	cbPerObjectND->worldView = DirectX::XMMatrixTranspose(worldView);
-	cbPerObjectND->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-	cbPerObjectND->worldInvTranposeView = MathHelper::InverseTranspose(world)*view;
-	mImmediateContext->Unmap(mConstBufferPerObjectND, 0);
-
-	mImmediateContext->IASetVertexBuffers(0, 1, mFloorObject->GetVertexBuffer(), &stride, &offset);
-	mImmediateContext->IASetIndexBuffer(*mFloorObject->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-	mImmediateContext->DrawIndexed(mFloorObject->GetIndexCount(), 0, 0);
-
-	// Draw the box
-	world = DirectX::XMLoadFloat4x4(&mBoxObject->GetWorldTransform());
-	worldView = world*view;
-	worldViewProj = world*viewProj;
-
-	mImmediateContext->Map(mConstBufferPerObjectND, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectNDResource);
-	cbPerObjectND = (ConstBufferPerObjectNormalDepth*)cbPerObjectNDResource.pData;
-	cbPerObjectND->worldView = DirectX::XMMatrixTranspose(worldView);
-	cbPerObjectND->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-	cbPerObjectND->worldInvTranposeView = MathHelper::InverseTranspose(world)*view;
-	mImmediateContext->Unmap(mConstBufferPerObjectND, 0);
-
-	mImmediateContext->IASetVertexBuffers(0, 1, mBoxObject->GetVertexBuffer(), &stride, &offset);
-	mImmediateContext->IASetIndexBuffer(*mBoxObject->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-	mImmediateContext->DrawIndexed(mBoxObject->GetIndexCount(), 0, 0);
-
-	// Draw the cylinders
-	for (int i = 0; i < 10; ++i)
-	{
-		world = DirectX::XMLoadFloat4x4(&mColumnObjects[i]->GetWorldTransform());
-		worldView = world*view;
-		worldViewProj = world*viewProj;
-
-		mImmediateContext->Map(mConstBufferPerObjectND, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectNDResource);
-		cbPerObjectND = (ConstBufferPerObjectNormalDepth*)cbPerObjectNDResource.pData;
-		cbPerObjectND->worldView = DirectX::XMMatrixTranspose(worldView);
-		cbPerObjectND->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-		cbPerObjectND->worldInvTranposeView = MathHelper::InverseTranspose(world)*view;
-		mImmediateContext->Unmap(mConstBufferPerObjectND, 0);
-
-		mImmediateContext->IASetVertexBuffers(0, 1, mColumnObjects[i]->GetVertexBuffer(), &stride, &offset);
-		mImmediateContext->IASetIndexBuffer(*mColumnObjects[i]->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-		mImmediateContext->DrawIndexed(mColumnObjects[i]->GetIndexCount(), 0, 0);
-	}
-
-	// Draw the spheres.
-	for (int i = 0; i < 10; ++i)
-	{
-		world = DirectX::XMLoadFloat4x4(&mSphereObjects[i]->GetWorldTransform());
-		worldView = world*view;
-		worldViewProj = world*viewProj;
-
-		mImmediateContext->Map(mConstBufferPerObjectND, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectNDResource);
-		cbPerObjectND = (ConstBufferPerObjectNormalDepth*)cbPerObjectNDResource.pData;
-		cbPerObjectND->worldView = DirectX::XMMatrixTranspose(worldView);
-		cbPerObjectND->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-		cbPerObjectND->worldInvTranposeView = MathHelper::InverseTranspose(world)*view;
-		mImmediateContext->Unmap(mConstBufferPerObjectND, 0);
-
-		mImmediateContext->IASetVertexBuffers(0, 1, mSphereObjects[i]->GetVertexBuffer(), &stride, &offset);
-		mImmediateContext->IASetIndexBuffer(*mSphereObjects[i]->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-		mImmediateContext->DrawIndexed(mSphereObjects[i]->GetIndexCount(), 0, 0);
-	}
-
-	// Draw the skull.
-	world = DirectX::XMLoadFloat4x4(&mSkullObject->GetWorldTransform());
-	worldView = world*view;
-	worldViewProj = world*viewProj;
-
-	mImmediateContext->Map(mConstBufferPerObjectND, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerObjectNDResource);
-	cbPerObjectND = (ConstBufferPerObjectNormalDepth*)cbPerObjectNDResource.pData;
-	cbPerObjectND->worldView = DirectX::XMMatrixTranspose(worldView);
-	cbPerObjectND->worldViewProj = DirectX::XMMatrixTranspose(worldViewProj);
-	cbPerObjectND->worldInvTranposeView = MathHelper::InverseTranspose(world)*view;
-	mImmediateContext->Unmap(mConstBufferPerObjectND, 0);
-
-	mImmediateContext->IASetVertexBuffers(0, 1, mSkullObject->GetVertexBuffer(), &stride, &offset);
-	mImmediateContext->IASetIndexBuffer(*mSkullObject->GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-
-	mImmediateContext->DrawIndexed(mSkullObject->GetIndexCount(), 0, 0);
-}
-
-void MyApp::RenderSSAOMap()
-{
-	// TODO: Use half-resolution render target and viewport
-
-	// Restore the back and depth buffer
-	ID3D11RenderTargetView* renderTargets[] = { mSsaoRTV0 };
-	mImmediateContext->OMSetRenderTargets(1, renderTargets, 0);
-
-	// Clear the render target and depth/stencil views
-	mImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Black));
-
-	// Set Viewport
-	mImmediateContext->RSSetViewports(1, &mViewport);
-
-	// Set Vertex Layout
-	mImmediateContext->IASetInputLayout(mVertexLayoutSSAO);
-	mImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	static const DirectX::XMMATRIX T(
-		0.5f, 0.0f, 0.0f, 0.0f,
-		0.0f, -0.5f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		0.5f, 0.5f, 0.0f, 1.0f);
-
-	DirectX::XMMATRIX viewTexTransform = XMMatrixMultiply(mCamera.Proj(), T);
-
-	mImmediateContext->Map(mConstBufferPerFrameSSAO, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerFrameSSAOResource);
-	cbPerFrameSSAO = (ConstBufferPerFrameSSAO*)cbPerFrameSSAOResource.pData;
-	cbPerFrameSSAO->viewTex = DirectX::XMMatrixTranspose(viewTexTransform);
-	cbPerFrameSSAO->frustumFarCorners[0] = mFrustumFarCorners[0];
-	cbPerFrameSSAO->frustumFarCorners[1] = mFrustumFarCorners[1];
-	cbPerFrameSSAO->frustumFarCorners[2] = mFrustumFarCorners[2];
-	cbPerFrameSSAO->frustumFarCorners[3] = mFrustumFarCorners[3];
-	cbPerFrameSSAO->offsets[0] = mOffsets[0];
-	cbPerFrameSSAO->offsets[1] = mOffsets[1];
-	cbPerFrameSSAO->offsets[2] = mOffsets[2];
-	cbPerFrameSSAO->offsets[3] = mOffsets[3];
-	cbPerFrameSSAO->offsets[4] = mOffsets[4];
-	cbPerFrameSSAO->offsets[5] = mOffsets[5];
-	cbPerFrameSSAO->offsets[6] = mOffsets[6];
-	cbPerFrameSSAO->offsets[7] = mOffsets[7];
-	cbPerFrameSSAO->offsets[8] = mOffsets[8];
-	cbPerFrameSSAO->offsets[9] = mOffsets[9];
-	cbPerFrameSSAO->offsets[10] = mOffsets[10];
-	cbPerFrameSSAO->offsets[11] = mOffsets[11];
-	cbPerFrameSSAO->offsets[12] = mOffsets[12];
-	cbPerFrameSSAO->offsets[13] = mOffsets[13];
-	mImmediateContext->Unmap(mConstBufferPerFrameSSAO, 0);
-
-	mImmediateContext->VSSetShader(mSsaoVS, NULL, 0);
-	mImmediateContext->PSSetShader(mSsaoPS, NULL, 0);
-
-	mImmediateContext->VSSetConstantBuffers(0, 1, &mConstBufferPerFrameSSAO);
-	mImmediateContext->PSSetConstantBuffers(0, 1, &mConstBufferPerFrameSSAO);
-
-	mImmediateContext->PSSetShaderResources(0, 1, &mNormalDepthSRV);
-	mImmediateContext->PSSetShaderResources(1, 1, &mRandomVectorSRV);
-
-	ID3D11SamplerState* samplers[] = { RenderStates::SsaoSS, RenderStates::DefaultSS };
-	mImmediateContext->PSSetSamplers(0, 2, samplers);
-
-	UINT stride = sizeof(Vertex);
-	UINT offset = 0;
-
-	mImmediateContext->IASetVertexBuffers(0, 1, &mScreenQuadVB, &stride, &offset);
-	mImmediateContext->IASetIndexBuffer(mScreenQuadIB, DXGI_FORMAT_R16_UINT, 0);
-	mImmediateContext->DrawIndexed(6, 0, 0);
-
-	ID3D11ShaderResourceView* nullSRVs[2] = { nullptr, nullptr };
-	mImmediateContext->PSSetShaderResources(0, 1, nullSRVs);
-}
-
-void MyApp::BlurSSAOMap(int numBlurs)
-{
-	for (int i = 0; i < numBlurs; ++i)
-	{
-		// Horizontal Blur
-		ID3D11RenderTargetView* renderTargets[] = { mSsaoRTV1 };
-		mImmediateContext->OMSetRenderTargets(1, renderTargets, 0);
-
-		// Clear the render target and depth/stencil views
-		mImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Black));
-
-		// Set Viewport
-		mImmediateContext->RSSetViewports(1, &mViewport);
-
-		mImmediateContext->Map(mConstBufferBlurParams, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbBlurParamsResource);
-		cbBlurParams = (ConstBufferBlurParams*)cbBlurParamsResource.pData;
-		cbBlurParams->texelWidth = 1.0f / mViewport.Width;
-		cbBlurParams->texelHeight = 0.0f;
-		mImmediateContext->Unmap(mConstBufferBlurParams, 0);
-
-		// Set Vertex Layout
-		mImmediateContext->IASetInputLayout(mVertexLayoutSSAO);
-		mImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-		mImmediateContext->VSSetShader(mBlurVS, NULL, 0);
-		mImmediateContext->PSSetShader(mBlurPS, NULL, 0);
-
-		mImmediateContext->PSSetConstantBuffers(0, 1, &mConstBufferBlurParams);
-
-		mImmediateContext->PSSetShaderResources(0, 1, &mNormalDepthSRV);
-		mImmediateContext->PSSetShaderResources(1, 1, &mSsaoSRV0);
-
-		ID3D11SamplerState* samplers[] = { RenderStates::BlurSS };
-		mImmediateContext->PSSetSamplers(0, 1, samplers);
-
-		UINT stride = sizeof(Vertex);
-		UINT offset = 0;
-
-		mImmediateContext->IASetVertexBuffers(0, 1, &mScreenQuadVB, &stride, &offset);
-		mImmediateContext->IASetIndexBuffer(mScreenQuadIB, DXGI_FORMAT_R16_UINT, 0);
-		mImmediateContext->DrawIndexed(6, 0, 0);
-
-		ID3D11ShaderResourceView* nullSRVs[2] = { nullptr, nullptr };
-		mImmediateContext->PSSetShaderResources(0, 2, nullSRVs);
-
-
-
-		// Vertical Blur
-		renderTargets[0] = mSsaoRTV0;
-		mImmediateContext->OMSetRenderTargets(1, renderTargets, 0);
-
-		// Clear the render target and depth/stencil views
-		mImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Black));
-
-		// Set Viewport
-		mImmediateContext->RSSetViewports(1, &mViewport);
-
-		mImmediateContext->Map(mConstBufferBlurParams, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbBlurParamsResource);
-		cbBlurParams = (ConstBufferBlurParams*)cbBlurParamsResource.pData;
-		cbBlurParams->texelWidth = 0.0f;
-		cbBlurParams->texelHeight = 1.0f / mViewport.Height;
-		mImmediateContext->Unmap(mConstBufferBlurParams, 0);
-
-		// Set Vertex Layout
-		mImmediateContext->IASetInputLayout(mVertexLayoutSSAO);
-		mImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-		mImmediateContext->VSSetShader(mBlurVS, NULL, 0);
-		mImmediateContext->PSSetShader(mBlurPS, NULL, 0);
-
-		mImmediateContext->PSSetConstantBuffers(0, 1, &mConstBufferBlurParams);
-
-		mImmediateContext->PSSetShaderResources(0, 1, &mNormalDepthSRV);
-		mImmediateContext->PSSetShaderResources(1, 1, &mSsaoSRV1);
-
-		mImmediateContext->PSSetSamplers(0, 1, samplers);
-
-		mImmediateContext->IASetVertexBuffers(0, 1, &mScreenQuadVB, &stride, &offset);
-		mImmediateContext->IASetIndexBuffer(mScreenQuadIB, DXGI_FORMAT_R16_UINT, 0);
-		mImmediateContext->DrawIndexed(6, 0, 0);
-
-		mImmediateContext->PSSetShaderResources(0, 2, nullSRVs);
-	}
-}
+/* Render Passes */
 
 void MyApp::RenderCubeMaps()
 {
@@ -1121,11 +518,11 @@ void MyApp::RenderScene(const GFirstPersonCamera& camera)
 	mImmediateContext->PSSetConstantBuffers(0, 1, &mConstBufferPerFrame);
 	mImmediateContext->PSSetConstantBuffers(1, 1, &mConstBufferPerObject);
 	mImmediateContext->PSSetConstantBuffers(2, 1, &mConstBufferPSParams);
-
-	ID3D11ShaderResourceView* sceneShadowMap = mShadowMap->GetDepthMapSRV();
+	
+	ID3D11ShaderResourceView* sceneShadowMap = rp_Shadow->GetDepthMapSRV();
 	mImmediateContext->PSSetShaderResources(2, 1, &sceneShadowMap);
 
-	mImmediateContext->PSSetShaderResources(3, 1, &mSsaoSRV1);
+//	mImmediateContext->PSSetShaderResources(3, 1, &mSsaoSRV1);
 
 	// Set PS Parameters
 	mImmediateContext->Map(mConstBufferPSParams, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPSParamsResource);
@@ -1135,7 +532,7 @@ void MyApp::RenderScene(const GFirstPersonCamera& camera)
 	cbPSParams->bFogEnabled = false;
 	cbPSParams->bReflection = false;
 	cbPSParams->bUseNormal = mNormalMapping;
-	cbPSParams->bUseAO = mAOSetting;
+//	cbPSParams->bUseAO = mAOSetting;
 	mImmediateContext->Unmap(mConstBufferPSParams, 0);
 
 	if (mFloorObject->IsVisible())
@@ -1156,7 +553,7 @@ void MyApp::RenderScene(const GFirstPersonCamera& camera)
 	cbPSParams->bFogEnabled = false;
 	cbPSParams->bReflection = false;
 	cbPSParams->bUseNormal = false;
-	cbPSParams->bUseAO = mAOSetting;
+//	cbPSParams->bUseAO = mAOSetting;
 	mImmediateContext->Unmap(mConstBufferPSParams, 0);
 
 	for (int i = 0; i < 10; ++i)
@@ -1175,7 +572,7 @@ void MyApp::RenderScene(const GFirstPersonCamera& camera)
 	cbPSParams->bFogEnabled = false;
 	cbPSParams->bReflection = true;
 	cbPSParams->bUseNormal = false;
-	cbPSParams->bUseAO = mAOSetting;
+//	cbPSParams->bUseAO = mAOSetting;
 	mImmediateContext->Unmap(mConstBufferPSParams, 0);
 
 	for (int i = 0; i < 10; ++i)
@@ -1197,7 +594,7 @@ void MyApp::RenderScene(const GFirstPersonCamera& camera)
 	cbPSParams->bFogEnabled = false;
 	cbPSParams->bReflection = false;
 	cbPSParams->bUseNormal = false;
-	cbPSParams->bUseAO = mAOSetting;
+//	cbPSParams->bUseAO = mAOSetting;
 	mImmediateContext->Unmap(mConstBufferPSParams, 0);
 
 	if (mSkullObject->IsVisible())
@@ -1221,89 +618,6 @@ void MyApp::RenderScene(const GFirstPersonCamera& camera)
 	// Unbind Shadow Map SRV
 	ID3D11ShaderResourceView* nullSRVs[2] = { NULL, NULL };
 	mImmediateContext->PSSetShaderResources(2, 2, nullSRVs);
-}
-
-void MyApp::RenderParticleSystem()
-{
-	mImmediateContext->IASetInputLayout(mVertexLayoutParticle);
-	mImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
-
-	UINT stride = sizeof(Particle);
-	UINT offset = 0;
-
-	DirectX::XMFLOAT3 eyePosW = mCamera.GetPosition();
-
-	// Set per frame constants
-	mImmediateContext->Map(mConstBufferPerFrameParticle, 0, D3D11_MAP_WRITE_DISCARD, 0, &cbPerFrameParticleResource);
-	cbPerFrameParticle = (ConstBufferPerFrameParticle*)cbPerFrameParticleResource.pData;
-	cbPerFrameParticle->eyePosW = DirectX::XMFLOAT4(eyePosW.x, eyePosW.y, eyePosW.z, 0.0f);
-	cbPerFrameParticle->emitPosW = DirectX::XMFLOAT4(mEmitPosW.x, mEmitPosW.y, mEmitPosW.z, 0.0f);
-	cbPerFrameParticle->emitDirW = DirectX::XMFLOAT4(mEmitDirW.x, mEmitDirW.y, mEmitDirW.z, 0.0f);
-	cbPerFrameParticle->gameTime = mGameTime;
-	cbPerFrameParticle->timeStep = mTimeStep;
-	cbPerFrameParticle->viewProj = DirectX::XMMatrixTranspose(mCamera.ViewProj());
-	mImmediateContext->Unmap(mConstBufferPerFrameParticle, 0);
-
-	// Stream-Out Particles
-
-	if (mFirstRun)
-	{
-		mImmediateContext->IASetVertexBuffers(0, 1, &mInitVB, &stride, &offset);
-	}
-	else
-	{
-		mImmediateContext->IASetVertexBuffers(0, 1, &mDrawVB, &stride, &offset);
-	}
-
-	mImmediateContext->SOSetTargets(1, &mStreamOutVB, &offset);
-
-	mImmediateContext->VSSetShader(mParticleStreamOutVS, NULL, 0);
-	mImmediateContext->GSSetShader(mParticleStreamOutGS, NULL, 0);
-	mImmediateContext->PSSetShader(0, NULL, 0);
-
-	mImmediateContext->GSSetShaderResources(0, 1, &mRandomSRV);
-	mImmediateContext->GSSetConstantBuffers(0, 1, &mConstBufferPerFrameParticle);
-
-	mImmediateContext->GSSetSamplers(0, 1, &RenderStates::DefaultSS);
-	mImmediateContext->OMSetDepthStencilState(RenderStates::DisableDepthDSS, 0);
-
-	if (mFirstRun)
-	{
-		mImmediateContext->Draw(1, 0);
-		mFirstRun = false;
-	}
-	else
-	{
-		mImmediateContext->DrawAuto();
-	}
-
-	ID3D11Buffer* nullBuffers[1] = { 0 };
-	mImmediateContext->SOSetTargets(1, nullBuffers, &offset);
-
-	// Draw Particles
-	std::swap(mDrawVB, mStreamOutVB);
-
-	mImmediateContext->IASetVertexBuffers(0, 1, &mDrawVB, &stride, &offset);
-
-	mImmediateContext->VSSetShader(mParticleDrawVS, NULL, 0);
-	mImmediateContext->GSSetShader(mParticleDrawGS, NULL, 0);
-	mImmediateContext->PSSetShader(mParticleDrawPS, NULL, 0);
-
-	mImmediateContext->GSSetConstantBuffers(0, 1, &mConstBufferPerFrameParticle);
-
-	mImmediateContext->PSSetShaderResources(0, 1, &mTexArraySRV);
-	mImmediateContext->PSSetSamplers(0, 1, &RenderStates::DefaultSS);
-
-	float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-	mImmediateContext->OMSetDepthStencilState(RenderStates::NoDepthWritesDSS, 0);
-	mImmediateContext->OMSetBlendState(RenderStates::AdditiveBS, blendFactor, 0xffffffff);
-
-	mImmediateContext->DrawAuto();
-
-	mImmediateContext->VSSetShader(0, NULL, 0);
-	mImmediateContext->GSSetShader(0, NULL, 0);
-	mImmediateContext->PSSetShader(0, NULL, 0);
 }
 
 void MyApp::DrawSSAOMap()
@@ -1333,7 +647,8 @@ void MyApp::DrawSSAOMap()
 
 	mImmediateContext->VSSetConstantBuffers(0, 1, &mConstBufferPerObjectDebug);
 
-	mImmediateContext->PSSetShaderResources(0, 1, &mSsaoSRV1);
+	ID3D11ShaderResourceView* tmp = rp_SSAO->GetSSAOMap();
+	mImmediateContext->PSSetShaderResources(0, 1, &tmp);
 	mImmediateContext->PSSetSamplers(0, 1, &RenderStates::DefaultSS);
 
 	mImmediateContext->OMSetDepthStencilState(RenderStates::DefaultDSS, 0);
@@ -1346,174 +661,6 @@ void MyApp::DrawSSAOMap()
 
 
 
-
-
-
-void MyApp::BuildShadowTransform()
-{
-	// Build Directional Light View Matrix
-	float radius = 18.0f;
-
-	DirectX::XMVECTOR lightDir = DirectX::XMLoadFloat3(&mDirLights[0].Direction);
-	DirectX::XMVECTOR lightPos = DirectX::XMVectorScale(lightDir, -2.0f*radius);
-	DirectX::XMVECTOR targetPos = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
-	DirectX::XMVECTOR up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-
-	DirectX::XMMATRIX V = DirectX::XMMatrixLookAtLH(lightPos, targetPos, up);
-
-	// Build Directional Light Ortho Projection Volume Matrix
-	DirectX::XMFLOAT3 center(0.0f, 0.0f, 0.0f);
-	DirectX::XMStoreFloat3(&center, DirectX::XMVector3TransformCoord(targetPos, V));
-
-	DirectX::XMMATRIX P = DirectX::XMMatrixOrthographicOffCenterLH(
-		center.x - radius, center.x + radius,
-		center.y - radius, center.y + radius,
-		center.z - radius, center.z + radius);
-
-	// Build Directional Light Texture Matrix to transform from NDC space to Texture Space
-	DirectX::XMMATRIX T(
-		0.5f, 0.0f, 0.0f, 0.0f,
-		0.0f, -0.5f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		0.5f, 0.5f, 0.0f, 1.0f);
-
-	// Multiply View, Projection, and Texture matrices to get Shadow Transformation Matrix
-	// Transforms vertices from world space to the view space of the light, to the projection
-	// plane, to texture coordinates.
-	DirectX::XMMATRIX S = V*P*T;
-
-	DirectX::XMStoreFloat4x4(&mLightView, V);
-	DirectX::XMStoreFloat4x4(&mLightProj, P);
-	DirectX::XMStoreFloat4x4(&mShadowTransform, S);
-}
-
-void MyApp::SetupNormalDepth()
-{
-	// Are the texture formats correct?
-
-	D3D11_TEXTURE2D_DESC normalDepthTexDesc;
-	normalDepthTexDesc.Width = mClientWidth;
-	normalDepthTexDesc.Height = mClientHeight;
-	normalDepthTexDesc.MipLevels = 1;
-	normalDepthTexDesc.ArraySize = 1;
-	normalDepthTexDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-	normalDepthTexDesc.SampleDesc.Count = 1;
-	normalDepthTexDesc.SampleDesc.Quality = 0;
-	normalDepthTexDesc.Usage = D3D11_USAGE_DEFAULT;
-	normalDepthTexDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-	normalDepthTexDesc.CPUAccessFlags = 0;
-	normalDepthTexDesc.MiscFlags = 0;
-
-	ID3D11Texture2D* normalDepthTex;
-	HR(mDevice->CreateTexture2D(&normalDepthTexDesc, 0, &normalDepthTex));
-
-	D3D11_RENDER_TARGET_VIEW_DESC normalDepthRTVDesc;
-	normalDepthRTVDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-	normalDepthRTVDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-	normalDepthRTVDesc.Texture2D.MipSlice = 0;
-
-	HR(mDevice->CreateRenderTargetView(normalDepthTex, &normalDepthRTVDesc, &mNormalDepthRTV));
-
-	D3D11_SHADER_RESOURCE_VIEW_DESC normalDepthSRVDesc;
-	normalDepthSRVDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-	normalDepthSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-	normalDepthSRVDesc.Texture2D.MipLevels = normalDepthTexDesc.MipLevels;
-	normalDepthSRVDesc.Texture2D.MostDetailedMip = 0;
-
-	HR(mDevice->CreateShaderResourceView(normalDepthTex, &normalDepthSRVDesc, &mNormalDepthSRV));
-
-	ReleaseCOM(normalDepthTex);
-}
-
-void MyApp::SetupSSAO()
-{
-	// Are the texture formats correct?
-
-	D3D11_TEXTURE2D_DESC ssaoTexDesc;
-	ssaoTexDesc.Width = mClientWidth;
-	ssaoTexDesc.Height = mClientHeight;
-	ssaoTexDesc.MipLevels = 1;
-	ssaoTexDesc.ArraySize = 1;
-	ssaoTexDesc.Format = DXGI_FORMAT_R16_FLOAT;
-	ssaoTexDesc.SampleDesc.Count = 1;
-	ssaoTexDesc.SampleDesc.Quality = 0;
-	ssaoTexDesc.Usage = D3D11_USAGE_DEFAULT;
-	ssaoTexDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-	ssaoTexDesc.CPUAccessFlags = 0;
-	ssaoTexDesc.MiscFlags = 0;
-
-	ID3D11Texture2D* ssaoTex0;
-	HR(mDevice->CreateTexture2D(&ssaoTexDesc, 0, &ssaoTex0));
-
-	ID3D11Texture2D* ssaoTex1;
-	HR(mDevice->CreateTexture2D(&ssaoTexDesc, 0, &ssaoTex1));
-
-	D3D11_RENDER_TARGET_VIEW_DESC ssaoRTVDesc;
-	ssaoRTVDesc.Format = DXGI_FORMAT_R16_FLOAT;
-	ssaoRTVDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-	ssaoRTVDesc.Texture2D.MipSlice = 0;
-
-	HR(mDevice->CreateRenderTargetView(ssaoTex0, &ssaoRTVDesc, &mSsaoRTV0));
-	HR(mDevice->CreateRenderTargetView(ssaoTex1, &ssaoRTVDesc, &mSsaoRTV1));
-
-	D3D11_SHADER_RESOURCE_VIEW_DESC ssaoSRVDesc;
-	ssaoSRVDesc.Format = DXGI_FORMAT_R16_FLOAT;
-	ssaoSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-	ssaoSRVDesc.Texture2D.MipLevels = ssaoTexDesc.MipLevels;
-	ssaoSRVDesc.Texture2D.MostDetailedMip = 0;
-
-	HR(mDevice->CreateShaderResourceView(ssaoTex0, &ssaoSRVDesc, &mSsaoSRV0));
-	HR(mDevice->CreateShaderResourceView(ssaoTex1, &ssaoSRVDesc, &mSsaoSRV1));
-
-	ReleaseCOM(ssaoTex0);
-	ReleaseCOM(ssaoTex1);
-}
-
-void MyApp::BuildFrustumCorners()
-{
-	float farZ = mCamera.GetFarZ();
-	float aspect = mCamera.GetAspect();
-	float halfHeight = farZ * tanf(0.5f * mCamera.GetFovY());
-	float halfWidth = aspect * halfHeight;
-
-	mFrustumFarCorners[0] = DirectX::XMFLOAT4(-halfWidth, -halfHeight, farZ, 0.0f);
-	mFrustumFarCorners[1] = DirectX::XMFLOAT4(-halfWidth, +halfHeight, farZ, 0.0f);
-	mFrustumFarCorners[2] = DirectX::XMFLOAT4(+halfWidth, +halfHeight, farZ, 0.0f);
-	mFrustumFarCorners[3] = DirectX::XMFLOAT4(+halfWidth, -halfHeight, farZ, 0.0f);
-}
-
-void MyApp::BuildOffsetVectors()
-{
-	mOffsets[0] = DirectX::XMFLOAT4(+1.0f, +1.0f, +1.0f, 0.0f);
-	mOffsets[1] = DirectX::XMFLOAT4(-1.0f, -1.0f, -1.0f, 0.0f);
-
-	mOffsets[2] = DirectX::XMFLOAT4(+1.0f, +1.0f, -1.0f, 0.0f);
-	mOffsets[3] = DirectX::XMFLOAT4(-1.0f, -1.0f, +1.0f, 0.0f);
-
-	mOffsets[4] = DirectX::XMFLOAT4(+1.0f, -1.0f, +1.0f, 0.0f);
-	mOffsets[5] = DirectX::XMFLOAT4(-1.0f, +1.0f, -1.0f, 0.0f);
-
-	mOffsets[6] = DirectX::XMFLOAT4(-1.0f, +1.0f, +1.0f, 0.0f);
-	mOffsets[7] = DirectX::XMFLOAT4(+1.0f, -1.0f, -1.0f, 0.0f);
-
-	mOffsets[8] = DirectX::XMFLOAT4(-1.0f, 0.0f, 0.0f, 0.0f);
-	mOffsets[9] = DirectX::XMFLOAT4(+1.0f, 0.0f, 0.0f, 0.0f);
-
-	mOffsets[10] = DirectX::XMFLOAT4(0.0f, +1.0f, 0.0f, 0.0f);
-	mOffsets[11] = DirectX::XMFLOAT4(0.0f, -1.0f, 0.0f, 0.0f);
-
-	mOffsets[12] = DirectX::XMFLOAT4(0.0f, 0.0f, +1.0f, 0.0f);
-	mOffsets[13] = DirectX::XMFLOAT4(0.0f, 0.0f, -1.0f, 0.0f);
-
-	// TODO: Add Random Offsets
-	for (int i = 0; i < 14; ++i)
-	{
-		DirectX::XMVECTOR v = DirectX::XMVector2Normalize(DirectX::XMLoadFloat4(&mOffsets[i]));
-		float s = MathHelper::RandF(0.25, 1.0f);
-		v = DirectX::XMVectorScale(v, s);
-		DirectX::XMStoreFloat4(&mOffsets[i], v);
-	}
-}
 
 void MyApp::BuildFullScreenQuad()
 {
@@ -1568,116 +715,7 @@ void MyApp::BuildFullScreenQuad()
 	HR(mDevice->CreateBuffer(&ibd, &iinitData, &mScreenQuadIB));
 }
 
-void MyApp::BuildRandomVectorTexture()
-{
-	D3D11_TEXTURE2D_DESC texDesc;
-	texDesc.Width = 256;
-	texDesc.Height = 256;
-	texDesc.MipLevels = 1;
-	texDesc.ArraySize = 1;
-	texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	texDesc.SampleDesc.Count = 1;
-	texDesc.SampleDesc.Quality = 0;
-	texDesc.Usage = D3D11_USAGE_IMMUTABLE;
-	texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	texDesc.CPUAccessFlags = 0;
-	texDesc.MiscFlags = 0;
 
-	D3D11_SUBRESOURCE_DATA initData = { 0 };
-	initData.SysMemPitch = 256 * sizeof(DirectX::PackedVector::XMCOLOR);
-
-	DirectX::PackedVector::XMCOLOR color[256 * 256];
-	for (int i = 0; i < 256; ++i)
-	{
-		for (int j = 0; j < 256; ++j)
-		{
-			DirectX::XMFLOAT3 v(MathHelper::RandF(), MathHelper::RandF(), MathHelper::RandF());
-
-			color[i * 256 + j] = DirectX::PackedVector::XMCOLOR(v.x, v.y, v.z, 0.0f);
-		}
-	}
-
-	initData.pSysMem = color;
-
-	ID3D11Texture2D* randomVectorTex = 0;
-	HR(mDevice->CreateTexture2D(&texDesc, &initData, &randomVectorTex));
-
-	HR(mDevice->CreateShaderResourceView(randomVectorTex, 0, &mRandomVectorSRV));
-
-	ReleaseCOM(randomVectorTex);
-}
-
-void MyApp::CreateRandomSRV()
-{
-	DirectX::XMFLOAT4 randomValues[1024];
-	for (int i = 0; i < 1024; ++i)
-	{
-		randomValues[i].x = MathHelper::RandF(-1.0f, 1.0f);
-		randomValues[i].y = MathHelper::RandF(-1.0f, 1.0f);
-		randomValues[i].z = MathHelper::RandF(-1.0f, 1.0f);
-		randomValues[i].w = MathHelper::RandF(-1.0f, 1.0f);
-	}
-
-	D3D11_TEXTURE1D_DESC texDesc;
-	texDesc.Width = 1024;
-	texDesc.MipLevels = 1;
-	texDesc.ArraySize = 1;
-	texDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	texDesc.Usage = D3D11_USAGE_IMMUTABLE;
-	texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	texDesc.CPUAccessFlags = 0;
-	texDesc.MiscFlags = 0;
-
-	D3D11_SUBRESOURCE_DATA initData;
-	initData.pSysMem = randomValues;
-	initData.SysMemPitch = 1024 * sizeof(DirectX::XMFLOAT4);
-	initData.SysMemSlicePitch = 0;
-
-	ID3D11Texture1D* tex;
-	HR(mDevice->CreateTexture1D(&texDesc, &initData, &tex));
-
-	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
-	srvDesc.Format = texDesc.Format;
-	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE1D;
-	srvDesc.Texture1D.MipLevels = texDesc.MipLevels;
-	srvDesc.Texture1D.MostDetailedMip = 0;
-
-	HR(mDevice->CreateShaderResourceView(tex, &srvDesc, &mRandomSRV));
-
-	ReleaseCOM(tex);
-}
-
-void MyApp::BuildParticleVB()
-{
-	D3D11_BUFFER_DESC vbd;
-	vbd.Usage = D3D11_USAGE_DEFAULT;
-	vbd.ByteWidth = sizeof(Particle);
-	vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-	vbd.CPUAccessFlags = 0;
-	vbd.MiscFlags = 0;
-	vbd.StructureByteStride = 0;
-
-	// The initial particle emitter has type 0 and age 0.  The rest
-	// of the particle attributes do not apply to an emitter.
-	Particle p;
-	p.InitialPos = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-	p.InitialVel = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-	p.Size = DirectX::XMFLOAT2(0.0f, 0.0f);
-	p.Age = 0.0f;
-	p.Type = PT_EMITTER;
-
-	D3D11_SUBRESOURCE_DATA vinitData;
-	vinitData.pSysMem = &p;
-
-	HR(mDevice->CreateBuffer(&vbd, &vinitData, &mInitVB));
-
-	// Create the ping-pong buffers for stream-out and drawing.
-	vbd.ByteWidth = sizeof(Particle) * mMaxParticles;
-	vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_STREAM_OUTPUT;
-
-	HR(mDevice->CreateBuffer(&vbd, 0, &mDrawVB));
-	HR(mDevice->CreateBuffer(&vbd, 0, &mStreamOutVB));
-}
 
 void MyApp::BuildCubeFaceCamera(float x, float y, float z)
 {
